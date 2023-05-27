@@ -1,3 +1,5 @@
+use std::intrinsics::prefetch_read_data;
+
 /// A struct that represents an Eytzinger array.
 ///
 /// It provides methods to create an Eytzinger array from a sorted array
@@ -14,29 +16,51 @@ impl<T: Copy + Ord> EytzingerArray<T> {
   /// # Examples
   ///
   /// ```
-  /// use algorithms_rust::binary_search::EytzingerArray;
+  /// use algorithms_rust::binary_search_eytzinger::EytzingerArray;
   /// let sorted_array = vec![1, 2, 3, 4, 5, 6, 7];
   /// let eytzinger_array = EytzingerArray::new(&sorted_array);
   /// ```
   pub fn new(sorted_array: &[T]) -> Self {
     let len = sorted_array.len();
     let mut array = vec![sorted_array[0]; len];
-    for i in 0..len {
+    for (i, element) in array.iter_mut().enumerate().take(len) {
       let pos = get_permutation_element(len - 1, i);
-      array[i] = sorted_array[pos];
+      *element = sorted_array[pos];
     }
     EytzingerArray { array }
   }
 
-  /// Performs a binary search on the Eytzinger array.
+  /// Performs a binary search on the Eytzinger array in a branchless manner.
+  ///
+  /// This function uses a branchless binary search algorithm, which aims to minimize
+  /// the number of conditional branches and thereby improve the prediction efficiency
+  /// of modern superscalar processors. The implementation uses the characteristic of
+  /// Eytzinger layout where child nodes of an element at index `i` are at indexes
+  /// `2*i + 1` (for left child) and `2*i + 2` (for right child).
+  ///
+  /// Memory prefetching is used to improve performance by fetching potential future
+  /// data before it is actually needed. The function prefetches the right child of
+  /// the current node at each step of the search, which is likely to be accessed in
+  /// the next iteration if the key is greater than the current element.
+  ///
+  /// # Arguments
+  ///
+  /// * `key` - A key value to search for in the array.
+  ///
+  /// # Returns
   ///
   /// It returns the index of the searched key if it is present in the array,
   /// or `None` if the key is not found.
   ///
+  /// # Safety
+  ///
+  /// This function uses raw pointers and the `prefetch_read_data` intrinsic, which
+  /// are considered unsafe operations in Rust.   
+  ///
   /// # Examples
   ///
   /// ```
-  /// use algorithms_rust::binary_search::EytzingerArray;
+  /// use algorithms_rust::binary_search_eytzinger::EytzingerArray;
   /// let sorted_array = vec![1, 2, 3, 4, 5, 6, 7];
   /// let eytzinger_array = EytzingerArray::new(&sorted_array);
   ///
@@ -47,12 +71,14 @@ impl<T: Copy + Ord> EytzingerArray<T> {
     let mut idx = 0;
 
     while idx < self.array.len() {
-      if self.array[idx] < *key {
-        idx = 2 * idx + 2; // right child
-      } else if self.array[idx] > *key {
-        idx = 2 * idx + 1; // left child
-      } else {
-        return Some(idx);
+      unsafe {
+        let prefetch = self.array.as_ptr().wrapping_add(2 * idx + 2);
+        prefetch_read_data::<T>(prefetch, 0);
+      }
+      match self.array[idx].cmp(key) {
+        std::cmp::Ordering::Less => idx = 2 * idx + 2, // right child
+        std::cmp::Ordering::Greater => idx = 2 * idx + 1, // left child
+        std::cmp::Ordering::Equal => return Some(idx),
       }
     }
 
