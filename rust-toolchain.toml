@@ -1,3 +1,3 @@
 [toolchain]
-channel = "nightly-2023-05-26"
-components = [ "rustfmt"]
+channel = "nightly-aarch64-apple-darwin"
+components = ["rustfmt"]
